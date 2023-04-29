@@ -5,20 +5,13 @@ import (
 	"log"
 
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
+	"github.com/manelmontilla/maelstrom-challenges/infra"
 )
-
-type mHandler func(msg maelstrom.Message, node *maelstrom.Node) error
-
-func (m mHandler) MaelstromHandler(node *maelstrom.Node) maelstrom.HandlerFunc {
-	return func(msg maelstrom.Message) error {
-		return m(msg, node)
-	}
-}
 
 func main() {
 	n := maelstrom.NewNode()
-	echoH := mHandler(handleEcho)
-	n.Handle("echo", echoH.MaelstromHandler(n))
+	echoH := infra.NodeHandler(handleEcho)
+	echoH.Register("echo", n)
 	err := n.Run()
 	if err != nil {
 		log.Fatal(err)

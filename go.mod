@@ -1,4 +1,4 @@
-module github.com/manelmontilla/maelstrom-echo
+module github.com/manelmontilla/maelstrom-challenges
 
 go 1.20
 
