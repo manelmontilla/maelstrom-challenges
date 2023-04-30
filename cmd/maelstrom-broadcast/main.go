@@ -23,7 +23,7 @@ func main() {
 type Broadcast struct {
 	*maelstrom.Node
 	neighbors Topology
-	messages  []int
+	messages  map[int]struct{}
 	sync.RWMutex
 }
 
@@ -31,7 +31,7 @@ type Broadcast struct {
 func NewBroadcast() *Broadcast {
 	b := &Broadcast{
 		Node:     maelstrom.NewNode(),
-		messages: []int{},
+		messages: map[int]struct{}{},
 		RWMutex:  sync.RWMutex{},
 	}
 	tHandler := infra.NodeHandler(b.HandleTopology)
@@ -59,7 +59,9 @@ func (n *Broadcast) HandleRead(msg maelstrom.Message, node *maelstrom.Node) erro
 	messages := make([]int, len(n.messages), len(n.messages))
 	log.Printf("Reading messages, messages in node: %+v, messages in response %+v",
 		n.messages, messages)
-	copy(messages, n.messages)
+	for k := range n.messages {
+		messages = append(messages, k)
+	}
 	n.RUnlock()
 	body["type"] = "read_ok"
 	body["messages"] = messages
@@ -74,27 +76,27 @@ func (n *Broadcast) HandleBroadcast(msg maelstrom.Message, node *maelstrom.Node)
 	if err != nil {
 		return err
 	}
-	m, ok := body["message"]
+	rawMessage, ok := body["message"]
 	if !ok {
 		return errors.New("invalid message of type broadcast, the message field does not exist")
 	}
+	message := int(rawMessage.(float64))
 	n.RWMutex.Lock()
-	log.Printf("Appending message %+v\n", m)
-	n.messages = append(n.messages, m.(int))
-	log.Printf("Node Messages: %+v\n", n.messages)
-	n.RWMutex.Unlock()
-
-	// Send messages to neighbors.
-	n.RWMutex.RLock()
-	neighbors := n.neighbors[n.ID()]
-	n.RWMutex.RUnlock()
-	for _, neighbor := range neighbors {
-		nBody := map[string]any{
-			"type":    "broadcast",
-			"message": m,
-		}
-		if err := n.Node.Send(neighbor, nBody); err != nil {
-			return fmt.Errorf("broadcasting message %v to %s", m, neighbor)
+	defer n.RWMutex.Unlock()
+	log.Printf("Appending message %+v\n, type: %T", message, message)
+	_, exist := n.messages[message]
+	if !exist {
+		n.messages[message] = struct{}{}
+		// Send messages to neighbors.
+		neighbors := n.neighbors[n.ID()]
+		for _, neighbor := range neighbors {
+			nBody := map[string]any{
+				"type":    "broadcast",
+				"message": message,
+			}
+			if err := n.Node.Send(neighbor, nBody); err != nil {
+				return fmt.Errorf("broadcasting message %v to %s", message, neighbor)
+			}
 		}
 	}
 	// Reply to the broadcast message, if the messsage is not from a neighbor.
