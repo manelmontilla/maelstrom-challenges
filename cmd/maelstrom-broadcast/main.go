@@ -23,7 +23,7 @@ func main() {
 type Broadcast struct {
 	*maelstrom.Node
 	neighbors Topology
-	messages  []any
+	messages  []int
 	sync.RWMutex
 }
 
@@ -31,7 +31,7 @@ type Broadcast struct {
 func NewBroadcast() *Broadcast {
 	b := &Broadcast{
 		Node:     maelstrom.NewNode(),
-		messages: []any{},
+		messages: []int{},
 		RWMutex:  sync.RWMutex{},
 	}
 	tHandler := infra.NodeHandler(b.HandleTopology)
@@ -56,7 +56,7 @@ func (n *Broadcast) HandleRead(msg maelstrom.Message, node *maelstrom.Node) erro
 		return err
 	}
 	n.RWMutex.RLock()
-	messages := make([]any, len(n.messages), len(n.messages))
+	messages := make([]int, len(n.messages), len(n.messages))
 	log.Printf("Reading messages, messages in node: %+v, messages in response %+v",
 		n.messages, messages)
 	copy(messages, n.messages)
@@ -80,7 +80,7 @@ func (n *Broadcast) HandleBroadcast(msg maelstrom.Message, node *maelstrom.Node)
 	}
 	n.RWMutex.Lock()
 	log.Printf("Appending message %+v\n", m)
-	n.messages = append(n.messages, m)
+	n.messages = append(n.messages, m.(int))
 	log.Printf("Node Messages: %+v\n", n.messages)
 	n.RWMutex.Unlock()
 
