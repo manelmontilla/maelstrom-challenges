@@ -30,8 +30,9 @@ type Broadcast struct {
 // NewBroadcast returns a new broadcast code ready to be run.
 func NewBroadcast() *Broadcast {
 	b := &Broadcast{
-		RWMutex: sync.RWMutex{},
-		Node:    maelstrom.NewNode(),
+		Node:     maelstrom.NewNode(),
+		messages: []any{},
+		RWMutex:  sync.RWMutex{},
 	}
 	tHandler := infra.NodeHandler(b.HandleTopology)
 	tHandler.Register("topology", b.Node)
@@ -48,13 +49,16 @@ func NewBroadcast() *Broadcast {
 
 // HandleRead handles messages of type read.
 func (n *Broadcast) HandleRead(msg maelstrom.Message, node *maelstrom.Node) error {
+	log.Printf("Processing message: %v\n", string(msg.Body))
 	var body map[string]any
 	err := json.Unmarshal(msg.Body, &body)
 	if err != nil {
 		return err
 	}
 	n.RWMutex.RLock()
-	messages := make([]any, 0, len(n.messages))
+	messages := make([]any, len(n.messages), len(n.messages))
+	log.Printf("Reading messages, messages in node: %+v, messages in response %+v",
+		n.messages, messages)
 	copy(messages, n.messages)
 	n.RUnlock()
 	body["type"] = "read_ok"
@@ -64,6 +68,7 @@ func (n *Broadcast) HandleRead(msg maelstrom.Message, node *maelstrom.Node) erro
 
 // HandleBroadcast handles messages of type broadcast.
 func (n *Broadcast) HandleBroadcast(msg maelstrom.Message, node *maelstrom.Node) error {
+	log.Printf("Processing message: %v\n", string(msg.Body))
 	var body map[string]any
 	err := json.Unmarshal(msg.Body, &body)
 	if err != nil {
@@ -74,8 +79,30 @@ func (n *Broadcast) HandleBroadcast(msg maelstrom.Message, node *maelstrom.Node)
 		return errors.New("invalid message of type broadcast, the message field does not exist")
 	}
 	n.RWMutex.Lock()
+	log.Printf("Appending message %+v\n", m)
 	n.messages = append(n.messages, m)
+	log.Printf("Node Messages: %+v\n", n.messages)
 	n.RWMutex.Unlock()
+
+	// Send messages to neighbors.
+	n.RWMutex.RLock()
+	neighbors := n.neighbors[n.ID()]
+	n.RWMutex.RUnlock()
+	for _, neighbor := range neighbors {
+		nBody := map[string]any{
+			"type":    "broadcast",
+			"message": m,
+		}
+		if err := n.Node.Send(neighbor, nBody); err != nil {
+			return fmt.Errorf("broadcasting message %v to %s", m, neighbor)
+		}
+	}
+	// Reply to the broadcast message, if the messsage is not from a neighbor.
+	if _, ok := body["msg_id"]; !ok {
+		return nil
+	}
+	delete(body, "message")
+	body["type"] = "broadcast_ok"
 	return node.Reply(msg, body)
 }
 
@@ -88,8 +115,16 @@ func (n *Broadcast) HandleTopology(msg maelstrom.Message, node *maelstrom.Node) 
 	}
 	log.Printf("Neighbors received %+v\n", topology)
 	n.Lock()
-	defer n.Unlock()
 	n.neighbors = topology
+	n.Unlock()
+	var body map[string]any
+	err := json.Unmarshal(msg.Body, &body)
+	if err != nil {
+		return err
+	}
+	delete(body, "topology")
+	body["type"] = "topology_ok"
+	n.Node.Reply(msg, body)
 	return nil
 }
 
