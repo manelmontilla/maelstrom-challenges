@@ -70,42 +70,33 @@ func (n *Broadcast) HandleRead(msg maelstrom.Message, node *maelstrom.Node) erro
 
 // HandleBroadcast handles messages of type broadcast.
 func (n *Broadcast) HandleBroadcast(msg maelstrom.Message, node *maelstrom.Node) error {
-	log.Printf("Processing message: %v\n", string(msg.Body))
-	var body map[string]any
-	err := json.Unmarshal(msg.Body, &body)
-	if err != nil {
+	var bMsg BroadcastMessage
+	if err := json.Unmarshal(msg.Body, &bMsg); err != nil {
 		return err
 	}
-	rawMessage, ok := body["message"]
-	if !ok {
-		return errors.New("invalid message of type broadcast, the message field does not exist")
-	}
-	message := int(rawMessage.(float64))
 	n.RWMutex.Lock()
 	defer n.RWMutex.Unlock()
-	log.Printf("Appending message %+v\n, type: %T", message, message)
-	_, exist := n.messages[message]
+	_, exist := n.messages[bMsg.Message]
 	if !exist {
-		n.messages[message] = struct{}{}
+		n.messages[bMsg.Message] = struct{}{}
 		// Send messages to neighbors.
 		neighbors := n.neighbors[n.ID()]
 		for _, neighbor := range neighbors {
-			nBody := map[string]any{
-				"type":    "broadcast",
-				"message": message,
-			}
-			if err := n.Node.Send(neighbor, nBody); err != nil {
-				return fmt.Errorf("broadcasting message %v to %s", message, neighbor)
+			// We remove the msg id field to signal that the message is a
+			// internal broadcast message, so no need to reply.
+			nMsg := bMsg
+			nMsg.MsgID = 0
+			if err := n.Node.Send(neighbor, nMsg); err != nil {
+				return fmt.Errorf("broadcasting message %+v to %s", bMsg, neighbor)
 			}
 		}
 	}
-	// Reply to the broadcast message, if the messsage is not from a neighbor.
-	if _, ok := body["msg_id"]; !ok {
+	// Reply to the broadcast message only if the messsage is not from a
+	// neighbor, which is signaled by not specifying a message id.
+	if bMsg.MsgID == 0 {
 		return nil
 	}
-	delete(body, "message")
-	body["type"] = "broadcast_ok"
-	return node.Reply(msg, body)
+	return node.Reply(msg, map[string]any{"type": "broadcast_ok"})
 }
 
 // HandleTopology handles messages of type topology.
@@ -133,6 +124,59 @@ func (n *Broadcast) HandleTopology(msg maelstrom.Message, node *maelstrom.Node) 
 // Run starts the inner maelstrom sever.
 func (n *Broadcast) Run() error {
 	return n.Node.Run()
+}
+
+// BroadcastMessage represents the message received in a bradcast operation.
+type BroadcastMessage struct {
+	MsgID   int `json:"msg_id,omitempty"`
+	Message int `json:"message,omitempty"`
+}
+
+// MarshalJSON marshals a [BroadcastMessage].
+func (b BroadcastMessage) MarshalJSON() ([]byte, error) {
+	data := map[string]any{
+		"type":    "broadcast",
+		"message": b.Message,
+	}
+	if b.MsgID != 0 {
+		data["msg_id"] = b.MsgID
+	}
+	return json.Marshal(data)
+}
+
+// UnmarshalJSON unmarshals a [BroadcastMessage].
+func (b *BroadcastMessage) UnmarshalJSON(data []byte) error {
+	var body map[string]any
+	err := json.Unmarshal(data, &body)
+	if err != nil {
+		return err
+	}
+	typ := body["type"]
+	if typ.(string) != "broadcast" {
+		err := fmt.Errorf("invalid message of type broadcast, expected message type broadcast, got type: %v", typ)
+		return err
+	}
+	rawMessage, ok := body["message"]
+	if !ok {
+		err := errors.New("invalid message of type broadcast, the message field does not exist")
+		return err
+	}
+	payload := int(rawMessage.(float64))
+	msgID := 0
+	if id, ok := body["msg_id"]; ok {
+		fMsgID, ok := id.(float64)
+		if !ok {
+			err := fmt.Errorf("invalid message of type broadcast, the message field msg_id is not a string, is a: %T", id)
+			return err
+		}
+		msgID = int(fMsgID)
+	}
+	broadcast := BroadcastMessage{
+		Message: payload,
+		MsgID:   msgID,
+	}
+	*b = broadcast
+	return nil
 }
 
 // Topology stores the payload of a topology message.
