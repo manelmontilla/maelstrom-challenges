@@ -1,6 +1,12 @@
 package infra
 
 import (
+	"context"
+	"errors"
+	"log"
+	"sync"
+	"time"
+
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 )
 
@@ -14,4 +20,67 @@ func (m NodeHandler) Register(typ string, node *maelstrom.Node) {
 		return m(msg, node)
 	}
 	node.Handle(typ, f)
+}
+
+// Broadcaster sends messages to a specified destination node. If doesn't
+// receives an ACK from the destination node in the specified amount of time it
+// retries the operation.
+type Broadcaster struct {
+	sync.RWMutex
+	Node       *maelstrom.Node
+	ACKTimeout time.Duration
+	wg         sync.WaitGroup
+	sets       map[string]map[int]BroadcasterMessage
+}
+
+// NewBroadcaster creates a new broadcaster that allows to send messages
+func NewBroadcaster(node *maelstrom.Node) *Broadcaster {
+	return &Broadcaster{
+		Node:       node,
+		ACKTimeout: 10 * time.Second,
+		wg:         sync.WaitGroup{},
+	}
+}
+
+func (b *Broadcaster) Send(msg BroadcasterMessage) {
+	b.Lock()
+	defer b.Unlock()
+	destinationSet, ok := b.sets[msg.Dest()]
+	if !ok {
+		destinationSet = map[int]BroadcasterMessage{}
+	}
+	// If the message is already being sent do nothing.
+	if _, ok := destinationSet[msg.ID()]; ok {
+		return
+	}
+	b.sendMessage(msg)
+}
+
+func (b *Broadcaster) sendMessage(msg BroadcasterMessage) {
+	go func() {
+		ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(b.ACKTimeout))
+		defer cancel()
+		_, err := b.Node.SyncRPC(ctx, msg.Dest(), msg.Body())
+		if errors.Is(err, context.DeadlineExceeded) {
+			b.sendMessage(msg)
+			return
+		}
+		if err != nil {
+			log.Printf("Unexpected error sending broadcast message %v, message: %+v", err, msg)
+		}
+		b.Lock()
+		defer b.Unlock()
+		destinationSet, ok := b.sets[msg.Dest()]
+		if !ok {
+			log.Printf("Unexpected error removing message: %+v, destination not present in the destinations set", msg)
+		}
+		delete(destinationSet, msg.ID())
+	}()
+}
+
+// BroadcasterMessage defines a message to be sent by the [Broadcaster].
+type BroadcasterMessage interface {
+	ID() int
+	Body() map[string]any
+	Dest() string
 }

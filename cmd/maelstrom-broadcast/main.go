@@ -22,17 +22,20 @@ func main() {
 // Broadcast represents a broadcast server.
 type Broadcast struct {
 	*maelstrom.Node
-	neighbors map[string][]string
-	messages  map[int]struct{}
+	neighbors   map[string][]string
+	messages    map[int]struct{}
+	broadcaster *infra.Broadcaster
 	sync.RWMutex
 }
 
 // NewBroadcast returns a new broadcast code ready to be run.
 func NewBroadcast() *Broadcast {
+	node := maelstrom.NewNode()
 	b := &Broadcast{
-		Node:     maelstrom.NewNode(),
-		messages: map[int]struct{}{},
-		RWMutex:  sync.RWMutex{},
+		Node:        node,
+		messages:    map[int]struct{}{},
+		RWMutex:     sync.RWMutex{},
+		broadcaster: infra.NewBroadcaster(node),
 	}
 	tHandler := infra.NodeHandler(b.HandleTopology)
 	tHandler.Register("topology", b.Node)
@@ -87,9 +90,14 @@ func (n *Broadcast) HandleBroadcast(msg maelstrom.Message, node *maelstrom.Node)
 			// internal broadcast message, so no need to reply.
 			nMsg := bMsg
 			nMsg.MsgID = 0
-			if err := n.Node.Send(neighbor, nMsg); err != nil {
-				return fmt.Errorf("broadcasting message %+v to %s", bMsg, neighbor)
+			// if err := n.Node.Send(neighbor, nMsg); err != nil {
+			// 	return fmt.Errorf("broadcasting message %+v to %s", bMsg, neighbor)
+			// }
+			nodeMsg := NodeBroadcastMessage{
+				Destination: neighbor,
+				Message:     bMsg.Message,
 			}
+			n.broadcaster.Send(nodeMsg)
 		}
 	}
 	// Reply to the broadcast message only if the messsage is not from a
@@ -211,4 +219,24 @@ func (t *TopologyMessage) UnmarshalJSON(data []byte) error {
 	}
 	t.Topology = topo
 	return nil
+}
+
+type NodeBroadcastMessage struct {
+	Destination string
+	Message     int
+}
+
+func (n NodeBroadcastMessage) ID() int {
+	return n.Message
+}
+
+func (n NodeBroadcastMessage) Dest() string {
+	return n.Destination
+}
+
+func (n NodeBroadcastMessage) Body() map[string]any {
+	return map[string]any{
+		"type":    "broadcast",
+		"message": n.Message,
+	}
 }
