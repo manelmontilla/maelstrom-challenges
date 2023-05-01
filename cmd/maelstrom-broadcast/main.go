@@ -22,7 +22,7 @@ func main() {
 // Broadcast represents a broadcast server.
 type Broadcast struct {
 	*maelstrom.Node
-	neighbors Topology
+	neighbors map[string][]string
 	messages  map[int]struct{}
 	sync.RWMutex
 }
@@ -49,7 +49,6 @@ func NewBroadcast() *Broadcast {
 
 // HandleRead handles messages of type read.
 func (n *Broadcast) HandleRead(msg maelstrom.Message, node *maelstrom.Node) error {
-	log.Printf("Processing message: %v\n", string(msg.Body))
 	var body map[string]any
 	err := json.Unmarshal(msg.Body, &body)
 	if err != nil {
@@ -63,9 +62,11 @@ func (n *Broadcast) HandleRead(msg maelstrom.Message, node *maelstrom.Node) erro
 		messages = append(messages, k)
 	}
 	n.RUnlock()
-	body["type"] = "read_ok"
-	body["messages"] = messages
-	return node.Reply(msg, body)
+	reply := map[string]any{
+		"type":     "read_ok",
+		"messages": messages,
+	}
+	return node.Reply(msg, reply)
 }
 
 // HandleBroadcast handles messages of type broadcast.
@@ -101,23 +102,14 @@ func (n *Broadcast) HandleBroadcast(msg maelstrom.Message, node *maelstrom.Node)
 
 // HandleTopology handles messages of type topology.
 func (n *Broadcast) HandleTopology(msg maelstrom.Message, node *maelstrom.Node) error {
-	log.Printf("Processing message: %v\n", string(msg.Body))
-	var topology Topology
+	var topology TopologyMessage
 	if err := json.Unmarshal(msg.Body, &topology); err != nil {
 		return fmt.Errorf("error unmarshaling topology: %w", err)
 	}
-	log.Printf("Neighbors received %+v\n", topology)
 	n.Lock()
-	n.neighbors = topology
+	n.neighbors = topology.Topology
 	n.Unlock()
-	var body map[string]any
-	err := json.Unmarshal(msg.Body, &body)
-	if err != nil {
-		return err
-	}
-	delete(body, "topology")
-	body["type"] = "topology_ok"
-	n.Node.Reply(msg, body)
+	n.Node.Reply(msg, map[string]any{"type": "topology_ok"})
 	return nil
 }
 
@@ -179,11 +171,13 @@ func (b *BroadcastMessage) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Topology stores the payload of a topology message.
-type Topology map[string][]string
+// TopologyMessage represents a message received in a topology operation.
+type TopologyMessage struct {
+	Topology map[string][]string
+}
 
-// UnmarshalJSON unmarshals the topology field from a topology message payload.
-func (t *Topology) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON unmarshals a [TopologyMessage].
+func (t *TopologyMessage) UnmarshalJSON(data []byte) error {
 	var msg map[string]interface{}
 	if err := json.Unmarshal(data, &msg); err != nil {
 		return err
@@ -215,6 +209,6 @@ func (t *Topology) UnmarshalJSON(data []byte) error {
 		}
 		topo[k] = strVals
 	}
-	*t = topo
+	t.Topology = topo
 	return nil
 }
