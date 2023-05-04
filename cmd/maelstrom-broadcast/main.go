@@ -86,10 +86,6 @@ func (n *Broadcast) HandleBroadcast(msg maelstrom.Message, node *maelstrom.Node)
 		// Send messages to neighbors.
 		neighbors := n.neighbors[n.ID()]
 		for _, neighbor := range neighbors {
-			// We remove the msg id field to signal that the message is a
-			// internal broadcast message, so no need to reply.
-			nMsg := bMsg
-			nMsg.MsgID = 0
 			nodeMsg := NodeBroadcastMessage{
 				Destination: neighbor,
 				Message:     bMsg.Message,
