@@ -112,7 +112,7 @@ func (n *Broadcast) HandleBroadcast(msg maelstrom.Message, node *maelstrom.Node)
 func (n *Broadcast) HandleTopology(msg maelstrom.Message, node *maelstrom.Node) error {
 	var topology TopologyMessage
 	if err := json.Unmarshal(msg.Body, &topology); err != nil {
-		return fmt.Errorf("error unmarshaling topology: %w", err)
+		return fmt.Errorf("error unmarshalling topology: %w", err)
 	}
 	n.Lock()
 	nodeID := n.ID()
