@@ -79,7 +79,6 @@ func (n *Broadcast) HandleBroadcast(msg maelstrom.Message, node *maelstrom.Node)
 		return err
 	}
 	n.RWMutex.Lock()
-	defer n.RWMutex.Unlock()
 	_, exist := n.messages[bMsg.Message]
 	if !exist {
 		n.messages[bMsg.Message] = struct{}{}
@@ -93,11 +92,7 @@ func (n *Broadcast) HandleBroadcast(msg maelstrom.Message, node *maelstrom.Node)
 			n.broadcaster.Send(nodeMsg)
 		}
 	}
-	// Reply to the broadcast message only if the messsage is not from a
-	// neighbor, which is signaled by not specifying a message id.
-	if bMsg.MsgID == 0 {
-		return nil
-	}
+	n.RWMutex.Unlock()
 	return node.Reply(msg, map[string]any{"type": "broadcast_ok"})
 }
 
