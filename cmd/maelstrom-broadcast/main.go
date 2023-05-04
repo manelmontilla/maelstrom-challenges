@@ -90,10 +90,13 @@ func (n *Broadcast) HandleBroadcast(msg maelstrom.Message, node *maelstrom.Node)
 		return err
 	}
 	if !exist {
-		n.messages[bMsg.Message] = struct{}{}
 		// Send messages to neighbors.
 		neighbors := n.neighbors[n.ID()]
 		for _, neighbor := range neighbors {
+			// Don`t broadcast the message to the node the sent it to us.
+			if bMsg.Dest == neighbor {
+				continue
+			}
 			nodeMsg := NodeBroadcastMessage{
 				Destination: neighbor,
 				Message:     bMsg.Message,
@@ -124,8 +127,9 @@ func (n *Broadcast) Run() error {
 
 // BroadcastMessage represents the message received in a bradcast operation.
 type BroadcastMessage struct {
-	MsgID   int `json:"msg_id,omitempty"`
-	Message int `json:"message,omitempty"`
+	MsgID   int    `json:"msg_id,omitempty"`
+	Message int    `json:"message,omitempty"`
+	Dest    string `json:"dest,omitempty"`
 }
 
 // MarshalJSON marshals a [BroadcastMessage].
