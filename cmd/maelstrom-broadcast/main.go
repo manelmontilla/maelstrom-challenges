@@ -90,9 +90,6 @@ func (n *Broadcast) HandleBroadcast(msg maelstrom.Message, node *maelstrom.Node)
 			// internal broadcast message, so no need to reply.
 			nMsg := bMsg
 			nMsg.MsgID = 0
-			// if err := n.Node.Send(neighbor, nMsg); err != nil {
-			// 	return fmt.Errorf("broadcasting message %+v to %s", bMsg, neighbor)
-			// }
 			nodeMsg := NodeBroadcastMessage{
 				Destination: neighbor,
 				Message:     bMsg.Message,
