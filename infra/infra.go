@@ -68,7 +68,7 @@ func (b *Broadcaster) sendMessage(msg BroadcasterMessage) {
 			if err != nil {
 				log.Printf("Unexpected error sending broadcast message: %v, message: %+v, to: %+v, retry #%d\n", err, msg.Body(), msg.Dest(), retry)
 			} else {
-				log.Printf("Finished broadcast operation, message: %+v, to: %+v, retry: %d\n", msg.Body(), msg.Dest(), retry)
+				log.Printf("Finished broadcast operation, message: %+v, to: %+v, retry #%d\n", msg.Body(), msg.Dest(), retry)
 			}
 			if ok := b.pennding.RemoveMessage(msg); !ok {
 				log.Printf("Unexpected error removing message: %+v, destination not present in the destinations set\n", msg)
