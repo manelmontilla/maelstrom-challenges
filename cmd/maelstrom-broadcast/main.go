@@ -78,8 +78,17 @@ func (n *Broadcast) HandleBroadcast(msg maelstrom.Message, node *maelstrom.Node)
 	if err := json.Unmarshal(msg.Body, &bMsg); err != nil {
 		return err
 	}
-	n.RWMutex.Lock()
-	_, exist := n.messages[bMsg.Message]
+	var exist bool
+	n.Lock()
+	_, exist = n.messages[bMsg.Message]
+	if !exist {
+		n.messages[bMsg.Message] = struct{}{}
+	}
+	n.Unlock()
+	err := node.Reply(msg, map[string]any{"type": "broadcast_ok"})
+	if err != nil {
+		return err
+	}
 	if !exist {
 		n.messages[bMsg.Message] = struct{}{}
 		// Send messages to neighbors.
@@ -92,8 +101,7 @@ func (n *Broadcast) HandleBroadcast(msg maelstrom.Message, node *maelstrom.Node)
 			n.broadcaster.Send(nodeMsg)
 		}
 	}
-	n.RWMutex.Unlock()
-	return node.Reply(msg, map[string]any{"type": "broadcast_ok"})
+	return nil
 }
 
 // HandleTopology handles messages of type topology.
