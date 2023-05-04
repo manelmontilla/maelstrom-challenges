@@ -46,7 +46,6 @@ func NewBroadcaster(node *maelstrom.Node) *Broadcaster {
 // Send sends a Broadcast message with retries.
 func (b *Broadcaster) Send(msg BroadcasterMessage) {
 	b.Lock()
-	defer b.Unlock()
 	destinationSet, ok := b.sets[msg.Dest()]
 	if !ok {
 		destinationSet = map[int]BroadcasterMessage{}
@@ -54,38 +53,40 @@ func (b *Broadcaster) Send(msg BroadcasterMessage) {
 	}
 	// If the message is already being sent do nothing.
 	if _, ok := destinationSet[msg.ID()]; ok {
+		b.Unlock()
 		return
 	}
 	destinationSet[msg.ID()] = msg
+	b.Unlock()
 	b.sendMessage(msg)
 }
 
 func (b *Broadcaster) sendMessage(msg BroadcasterMessage) {
 	go func() {
-		retries := 0
+		retry := 0
+	Loop:
 		for {
+			log.Printf("Sending broadcast message: %+v, to: %+v, retry #%d\n", msg.Body(), msg.Dest(), retry)
 			ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(b.ACKTimeout))
 			defer cancel()
 			_, err := b.Node.SyncRPC(ctx, msg.Dest(), msg.Body())
 			if errors.Is(err, context.DeadlineExceeded) {
-				retries++
-				log.Printf("Timeout broadcasting message %+v, to: %+v, starting retry #: %d\n", msg.Dest(), msg.Body(), retries)
-				continue
+				retry++
+				log.Printf("Timeout broadcasting message: %+v, to: %+v, starting retry #%d\n", msg.Body(), msg.Dest(), retry)
+				continue Loop
 			}
 			if err != nil {
-				log.Printf("Unexpected error sending broadcast message %v, message: %+v", err, msg)
+				log.Printf("Unexpected error sending broadcast message: %v, message: %+v, to: %+v, in retry #%d\n", err, msg.Body(), msg.Dest(), retry)
 				return
 			}
-			if retries > 0 {
-				log.Printf("Timeout broadcasting message %+v, to: %+v, recovered\n", msg.Dest(), msg.Body())
-			}
+			log.Printf("Finished broadcast operation, message: %+v, to: %+v, retry: %d\n", msg.Body(), msg.Dest(), retry)
 			b.Lock()
-			defer b.Unlock()
 			destinationSet, ok := b.sets[msg.Dest()]
 			if !ok {
-				log.Printf("Unexpected error removing message: %+v, destination not present in the destinations set", msg)
+				log.Printf("Unexpected error removing message: %+v, destination not present in the destinations set\n", msg)
 			}
 			delete(destinationSet, msg.ID())
+			b.Unlock()
 		}
 	}()
 }
