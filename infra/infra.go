@@ -38,7 +38,7 @@ func NewBroadcaster(node *maelstrom.Node) *Broadcaster {
 	msgSet := newPendingMessages()
 	return &Broadcaster{
 		Node:       node,
-		ACKTimeout: 2 * time.Second,
+		ACKTimeout: 5 * time.Second,
 		wg:         sync.WaitGroup{},
 		pennding:   msgSet,
 	}
