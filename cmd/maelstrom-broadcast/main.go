@@ -22,7 +22,7 @@ func main() {
 // Broadcast represents a broadcast server.
 type Broadcast struct {
 	*maelstrom.Node
-	neighbors   map[string][]string
+	neighbors   []string
 	messages    map[int]struct{}
 	broadcaster *infra.Broadcaster
 	sync.RWMutex
@@ -91,7 +91,7 @@ func (n *Broadcast) HandleBroadcast(msg maelstrom.Message, node *maelstrom.Node)
 	}
 	if !exist {
 		// Send messages to neighbors.
-		neighbors := n.neighbors[n.ID()]
+		neighbors := n.neighbors
 		src := msg.Src
 		for _, neighbor := range neighbors {
 			// Don`t broadcast the message to the node the sent it to us.
@@ -115,7 +115,8 @@ func (n *Broadcast) HandleTopology(msg maelstrom.Message, node *maelstrom.Node) 
 		return fmt.Errorf("error unmarshaling topology: %w", err)
 	}
 	n.Lock()
-	n.neighbors = topology.Topology
+	nodeID := n.ID()
+	n.neighbors = topology.Topology[nodeID]
 	n.Unlock()
 	n.Node.Reply(msg, map[string]any{"type": "topology_ok"})
 	return nil
