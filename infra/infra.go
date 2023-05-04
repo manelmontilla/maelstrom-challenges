@@ -37,7 +37,7 @@ type Broadcaster struct {
 func NewBroadcaster(node *maelstrom.Node) *Broadcaster {
 	return &Broadcaster{
 		Node:       node,
-		ACKTimeout: 10 * time.Second,
+		ACKTimeout: 2 * time.Second,
 		wg:         sync.WaitGroup{},
 		sets:       map[string]map[int]BroadcasterMessage{},
 	}
@@ -70,7 +70,7 @@ func (b *Broadcaster) sendMessage(msg BroadcasterMessage) {
 			if errors.Is(err, context.DeadlineExceeded) {
 				retries++
 				log.Printf("Timeout broadcasting message %+v, to: %+v, starting retry #: %d\n", msg.Dest(), msg.Body(), retries)
-				break
+				continue
 			}
 			if err != nil {
 				log.Printf("Unexpected error sending broadcast message %v, message: %+v", err, msg)
