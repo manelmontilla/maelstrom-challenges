@@ -30,35 +30,25 @@ type Broadcaster struct {
 	Node       *maelstrom.Node
 	ACKTimeout time.Duration
 	wg         sync.WaitGroup
-	sets       map[string]map[int]BroadcasterMessage
+	pennding   *pendingMessages
 }
 
 // NewBroadcaster creates a new broadcaster that allows to send messages
 func NewBroadcaster(node *maelstrom.Node) *Broadcaster {
+	msgSet := newPendingMessages()
 	return &Broadcaster{
 		Node:       node,
 		ACKTimeout: 2 * time.Second,
 		wg:         sync.WaitGroup{},
-		sets:       map[string]map[int]BroadcasterMessage{},
+		pennding:   msgSet,
 	}
 }
 
 // Send sends a Broadcast message with retries.
 func (b *Broadcaster) Send(msg BroadcasterMessage) {
-	b.Lock()
-	destinationSet, ok := b.sets[msg.Dest()]
-	if !ok {
-		destinationSet = map[int]BroadcasterMessage{}
-		b.sets[msg.Dest()] = destinationSet
+	if ok := b.pennding.AddIfNotExits(msg); ok {
+		b.sendMessage(msg)
 	}
-	// If the message is already being sent do nothing.
-	if _, ok := destinationSet[msg.ID()]; ok {
-		b.Unlock()
-		return
-	}
-	destinationSet[msg.ID()] = msg
-	b.Unlock()
-	b.sendMessage(msg)
 }
 
 func (b *Broadcaster) sendMessage(msg BroadcasterMessage) {
@@ -76,17 +66,14 @@ func (b *Broadcaster) sendMessage(msg BroadcasterMessage) {
 				continue Loop
 			}
 			if err != nil {
-				log.Printf("Unexpected error sending broadcast message: %v, message: %+v, to: %+v, in retry #%d\n", err, msg.Body(), msg.Dest(), retry)
-				return
+				log.Printf("Unexpected error sending broadcast message: %v, message: %+v, to: %+v, retry #%d\n", err, msg.Body(), msg.Dest(), retry)
+			} else {
+				log.Printf("Finished broadcast operation, message: %+v, to: %+v, retry: %d\n", msg.Body(), msg.Dest(), retry)
 			}
-			log.Printf("Finished broadcast operation, message: %+v, to: %+v, retry: %d\n", msg.Body(), msg.Dest(), retry)
-			b.Lock()
-			destinationSet, ok := b.sets[msg.Dest()]
-			if !ok {
+			if ok := b.pennding.RemoveMessage(msg); !ok {
 				log.Printf("Unexpected error removing message: %+v, destination not present in the destinations set\n", msg)
 			}
-			delete(destinationSet, msg.ID())
-			b.Unlock()
+			break
 		}
 	}()
 }
@@ -96,4 +83,51 @@ type BroadcasterMessage interface {
 	ID() int
 	Body() map[string]any
 	Dest() string
+}
+
+type pendingMessages struct {
+	sync.Mutex
+	destMessages map[string]map[int]BroadcasterMessage
+}
+
+func newPendingMessages() *pendingMessages {
+	return &pendingMessages{
+		Mutex:        sync.Mutex{},
+		destMessages: map[string]map[int]BroadcasterMessage{},
+	}
+}
+
+// AddIfNotExist adds a message pending to be sent to a destination if the
+// messages is not already pending to be sent. Returns true if the message has
+// been added, false otherwise.
+func (p *pendingMessages) AddIfNotExits(msg BroadcasterMessage) bool {
+	dest := msg.Dest()
+	p.Lock()
+	defer p.Unlock()
+	destinationSet, ok := p.destMessages[dest]
+	if !ok {
+		destinationSet = map[int]BroadcasterMessage{}
+		p.destMessages[dest] = destinationSet
+	}
+	// If the message is already being sent do nothing.
+	if _, ok := destinationSet[msg.ID()]; ok {
+		return false
+	}
+	destinationSet[msg.ID()] = msg
+	return true
+
+}
+
+// Removes the given message if exist and returning if the messages has been
+// removed.
+func (p *pendingMessages) RemoveMessage(msg BroadcasterMessage) bool {
+	p.Lock()
+	defer p.Unlock()
+	destinationSet, ok := p.destMessages[msg.Dest()]
+	if !ok {
+		return false
+
+	}
+	delete(destinationSet, msg.ID())
+	return true
 }
