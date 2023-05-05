@@ -89,7 +89,10 @@ func (n *Broadcast) HandleBroadcast(msg maelstrom.Message, node *maelstrom.Node)
 	if err != nil {
 		return err
 	}
-	if !exist {
+	if exist {
+		return nil
+	}
+	go func() {
 		// Send messages to neighbors.
 		neighbors := n.neighbors
 		src := msg.Src
@@ -104,7 +107,7 @@ func (n *Broadcast) HandleBroadcast(msg maelstrom.Message, node *maelstrom.Node)
 			}
 			n.broadcaster.Send(nodeMsg)
 		}
-	}
+	}()
 	return nil
 }
 
