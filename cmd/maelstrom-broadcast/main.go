@@ -23,6 +23,7 @@ func main() {
 type Broadcast struct {
 	*maelstrom.Node
 	neighbors   []string
+	topology    Topology
 	messages    map[int]struct{}
 	broadcaster *infra.Broadcaster
 	sync.RWMutex
@@ -36,6 +37,7 @@ func NewBroadcast() *Broadcast {
 		messages:    map[int]struct{}{},
 		RWMutex:     sync.RWMutex{},
 		broadcaster: infra.NewBroadcaster(node),
+		topology:    DefaultTopology,
 	}
 	tHandler := infra.NodeHandler(b.HandleTopology)
 	tHandler.Register("topology", b.Node)
@@ -113,16 +115,32 @@ func (n *Broadcast) HandleBroadcast(msg maelstrom.Message, node *maelstrom.Node)
 
 // HandleTopology handles messages of type topology.
 func (n *Broadcast) HandleTopology(msg maelstrom.Message, node *maelstrom.Node) error {
-	var topology TopologyMessage
-	if err := json.Unmarshal(msg.Body, &topology); err != nil {
+	var topologyMsg TopologyMessage
+	if err := json.Unmarshal(msg.Body, &topologyMsg); err != nil {
 		return fmt.Errorf("error unmarshalling topology: %w", err)
 	}
+	neighbors, err := n.topology(node, msg, topologyMsg.Topology)
+	if err != nil {
+		return err
+	}
 	n.Lock()
-	nodeID := n.ID()
-	n.neighbors = topology.Topology[nodeID]
+	n.neighbors = neighbors
 	n.Unlock()
 	n.Node.Reply(msg, map[string]any{"type": "topology_ok"})
 	return nil
+}
+
+// Topology defines a functions that returns the list of neighbors of a a node
+// given the current node and the topology info received in a Topology message.
+type Topology func(node *maelstrom.Node, msg maelstrom.Message, topology map[string][]string) ([]string, error)
+
+func DefaultTopology(node *maelstrom.Node, msg maelstrom.Message, topology map[string][]string) ([]string, error) {
+	neighbors, ok := topology[node.ID()]
+	if !ok {
+		err := fmt.Errorf("no information for the current node: %s, in the topology info", node.ID())
+		return nil, err
+	}
+	return neighbors, nil
 }
 
 // Run starts the inner maelstrom sever.
