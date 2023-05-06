@@ -22,9 +22,28 @@ func main() {
 	}
 }
 
-type neighbors []string
+type nodeIDs []nID
 
-func (n neighbors) BitSet() (*bitset.BitSet, error) {
+func nodeIDsWithIDs(IDs []string) nodeIDs {
+	var neighbors []nID
+	for _, id := range IDs {
+		id := nID(id)
+		neighbors = append(neighbors, id)
+	}
+	return neighbors
+}
+
+func nodeIDsWithBitSet(bs *bitset.BitSet) nodeIDs {
+	var ids nodeIDs
+	for i, e := bs.NextSet(0); e; i, e = bs.NextSet(i + 1) {
+		var id nID
+		id = id.WithIndex(uint8(i))
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+func (n nodeIDs) BitSet() (*bitset.BitSet, error) {
 	bs := bitset.New(uint(len(n)))
 	for _, neighbor := range n {
 		index, err := nID(neighbor).Index()
@@ -58,9 +77,9 @@ func (n nID) Index() (uint8, error) {
 // Broadcast represents a broadcast server.
 type Broadcast struct {
 	*maelstrom.Node
-	neighbors   []string
+	neighbors   []nID
 	topology    Topology
-	messages    map[int]struct{}
+	messages    map[int]*bitset.BitSet
 	broadcaster *infra.Broadcaster
 	sync.RWMutex
 }
@@ -70,7 +89,7 @@ func NewBroadcast() *Broadcast {
 	node := maelstrom.NewNode()
 	b := &Broadcast{
 		Node:        node,
-		messages:    map[int]struct{}{},
+		messages:    map[int]*bitset.BitSet{},
 		RWMutex:     sync.RWMutex{},
 		broadcaster: infra.NewBroadcaster(node),
 		topology:    DefaultTopology,
@@ -120,8 +139,16 @@ func (n *Broadcast) HandleBroadcast(msg maelstrom.Message, node *maelstrom.Node)
 	n.Lock()
 	_, exist = n.messages[bMsg.Message]
 	if !exist {
-		n.messages[bMsg.Message] = struct{}{}
+		length := len(n.NodeIDs())
+		n.messages[bMsg.Message] = bitset.New(uint(length))
 	}
+	msgSent := n.messages[bMsg.Message]
+	msgSent = msgSent.Union(&bMsg.Sent)
+
+	n.messages[bMsg.Message] = msgSent
+
+	alreadySent := msgSent.Clone()
+	neighbors := nodeIDs(n.neighbors)
 	n.Unlock()
 	err := node.Reply(msg, map[string]any{"type": "broadcast_ok"})
 	if err != nil {
@@ -131,31 +158,35 @@ func (n *Broadcast) HandleBroadcast(msg maelstrom.Message, node *maelstrom.Node)
 		return nil
 	}
 	go func() {
-		// Send messages to neighbors.
-		neighbors := neighbors(n.neighbors)
-		src := msg.Src
-		neighborsBs, err := neighbors.BitSet()
-		if err != nil {
-			log.Printf("error generating bit set: %+v", err)
-			return
+		alreadySentIDs := nodeIDsWithBitSet(alreadySent)
+		var sendTo []string
+		for _, n := range neighbors {
+			var found bool
+			for _, sID := range alreadySentIDs {
+				if sID == n {
+					found = true
+					break
+				}
+			}
+			if !found {
+				sendTo = append(sendTo, string(n))
+			}
 		}
-		sent := bMsg.Sent.Clone()
-		sent = sent.Union(neighborsBs)
-		for _, neighbor := range neighbors {
+
+		src := msg.Src
+		sent, err := neighbors.BitSet()
+		if err != nil {
+			log.Printf("error in broadcast: %+v", err)
+		}
+		sent = sent.Union(alreadySent)
+		log.Printf("Broadcast Message: %d, already sent to: %+v, neighbors: %+v, sending to: %+v", bMsg.Message, alreadySentIDs, neighbors, sendTo)
+		for _, s := range sendTo {
 			// Don`t broadcast the message to the node that sent it to us.
-			if src == neighbor {
-				continue
-			}
-			nIndex, err := nID(neighbor).Index()
-			if err != nil {
-				log.Printf("error generating node ID index: %+v", err)
-				return
-			}
-			if bMsg.Sent.Test(uint(nIndex)) {
+			if src == s {
 				continue
 			}
 			nodeMsg := NodeBroadcastMessage{
-				Destination: neighbor,
+				Destination: s,
 				Message:     bMsg.Message,
 				Sent:        *sent,
 			}
@@ -176,7 +207,7 @@ func (n *Broadcast) HandleTopology(msg maelstrom.Message, node *maelstrom.Node) 
 		return err
 	}
 	n.Lock()
-	n.neighbors = neighbors
+	n.neighbors = nodeIDsWithIDs(neighbors)
 	n.Unlock()
 	n.Node.Reply(msg, map[string]any{"type": "topology_ok"})
 	return nil
