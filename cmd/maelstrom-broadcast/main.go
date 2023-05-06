@@ -180,7 +180,6 @@ func (n *Broadcast) HandleBroadcast(msg maelstrom.Message, node *maelstrom.Node)
 			}
 		}
 
-		src := msg.Src
 		sent, err := neighbors.BitSet()
 		if err != nil {
 			log.Printf("error in broadcast: %+v", err)
@@ -188,10 +187,7 @@ func (n *Broadcast) HandleBroadcast(msg maelstrom.Message, node *maelstrom.Node)
 		sent = sent.Union(alreadySent)
 		log.Printf("Broadcast Message: %d, already sent to: %+v, neighbors: %+v, sending to: %+v", bMsg.Message, alreadySentIDs, neighbors, sendTo)
 		for _, s := range sendTo {
-			// Don`t broadcast the message to the node that sent it to us.
-			if src == s {
-				continue
-			}
+
 			nodeMsg := NodeBroadcastMessage{
 				Destination: s,
 				Message:     bMsg.Message,
