@@ -140,7 +140,14 @@ func (n *Broadcast) HandleBroadcast(msg maelstrom.Message, node *maelstrom.Node)
 	_, exist = n.messages[bMsg.Message]
 	if !exist {
 		length := len(n.NodeIDs())
-		n.messages[bMsg.Message] = bitset.New(uint(length))
+		bsInit := bitset.New(uint(length))
+		selfID := nID(n.ID())
+		selfIndex, err := selfID.Index()
+		if err != nil {
+			return err
+		}
+		bsInit = bsInit.Set(uint(selfIndex))
+		n.messages[bMsg.Message] = bsInit
 	}
 	msgSent := n.messages[bMsg.Message]
 	msgSent = msgSent.Union(&bMsg.Sent)
