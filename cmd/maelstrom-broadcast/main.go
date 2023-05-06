@@ -132,7 +132,7 @@ func (n *Broadcast) HandleTopology(msg maelstrom.Message, node *maelstrom.Node) 
 
 // Topology defines a functions that returns the list of neighbors of a a node
 // given the current node and the topology info received in a Topology message.
-type Topology func(node *maelstrom.Node, msg maelstrom.Message, topology map[string][]string) ([]string, error)
+type Topology interface func(node *maelstrom.Node, msg maelstrom.Message, topology map[string][]string) ([]string, error)
 
 func DefaultTopology(node *maelstrom.Node, msg maelstrom.Message, topology map[string][]string) ([]string, error) {
 	neighbors, ok := topology[node.ID()]
@@ -142,6 +142,8 @@ func DefaultTopology(node *maelstrom.Node, msg maelstrom.Message, topology map[s
 	}
 	return neighbors, nil
 }
+
+
 
 // Run starts the inner maelstrom sever.
 func (n *Broadcast) Run() error {
