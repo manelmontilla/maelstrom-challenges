@@ -1,12 +1,15 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
 	"sync"
 
+	"github.com/bits-and-blooms/bitset"
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 
 	"github.com/manelmontilla/maelstrom-challenges/infra"
@@ -17,6 +20,39 @@ func main() {
 	if err := n.Run(); err != nil {
 		log.Fatalf("node stopped with err: %v", err)
 	}
+}
+
+type neighbors []string
+
+func (n neighbors) BitSet() (*bitset.BitSet, error) {
+	bs := bitset.New(uint(len(n)))
+	for _, neighbor := range n {
+		index, err := nID(neighbor).Index()
+		if err != nil {
+			return nil, err
+		}
+		bs.Set(uint(index))
+	}
+	return bs, nil
+}
+
+type nID string
+
+func (nID) WithIndex(i uint8) nID {
+	return nID(fmt.Sprintf("n%d", i))
+}
+
+func (n nID) Index() (uint8, error) {
+	// node ID examples: n1, n21
+	if len(n) < 2 {
+		return 0, fmt.Errorf("invalid node ID: %s", n)
+	}
+	strIndex := n[1:]
+	i, err := strconv.Atoi(string(strIndex))
+	if err != nil {
+		return 0, fmt.Errorf("invalid node ID %s: %w", n, err)
+	}
+	return uint8(i), nil
 }
 
 // Broadcast represents a broadcast server.
@@ -76,7 +112,7 @@ func (n *Broadcast) HandleRead(msg maelstrom.Message, node *maelstrom.Node) erro
 
 // HandleBroadcast handles messages of type broadcast.
 func (n *Broadcast) HandleBroadcast(msg maelstrom.Message, node *maelstrom.Node) error {
-	var bMsg BroadcastMessage
+	var bMsg IntBroadcastMessage
 	if err := json.Unmarshal(msg.Body, &bMsg); err != nil {
 		return err
 	}
@@ -96,16 +132,32 @@ func (n *Broadcast) HandleBroadcast(msg maelstrom.Message, node *maelstrom.Node)
 	}
 	go func() {
 		// Send messages to neighbors.
-		neighbors := n.neighbors
+		neighbors := neighbors(n.neighbors)
 		src := msg.Src
+		neighborsBs, err := neighbors.BitSet()
+		if err != nil {
+			log.Printf("error generating bit set: %+v", err)
+			return
+		}
+		sent := bMsg.Sent.Clone()
+		sent = sent.Union(neighborsBs)
 		for _, neighbor := range neighbors {
-			// Don`t broadcast the message to the node the sent it to us.
+			// Don`t broadcast the message to the node that sent it to us.
 			if src == neighbor {
+				continue
+			}
+			nIndex, err := nID(neighbor).Index()
+			if err != nil {
+				log.Printf("error generating node ID index: %+v", err)
+				return
+			}
+			if bMsg.Sent.Test(uint(nIndex)) {
 				continue
 			}
 			nodeMsg := NodeBroadcastMessage{
 				Destination: neighbor,
 				Message:     bMsg.Message,
+				Sent:        *sent,
 			}
 			n.broadcaster.Send(nodeMsg)
 		}
@@ -132,7 +184,7 @@ func (n *Broadcast) HandleTopology(msg maelstrom.Message, node *maelstrom.Node) 
 
 // Topology defines a functions that returns the list of neighbors of a a node
 // given the current node and the topology info received in a Topology message.
-type Topology interface func(node *maelstrom.Node, msg maelstrom.Message, topology map[string][]string) ([]string, error)
+type Topology func(node *maelstrom.Node, msg maelstrom.Message, topology map[string][]string) ([]string, error)
 
 func DefaultTopology(node *maelstrom.Node, msg maelstrom.Message, topology map[string][]string) ([]string, error) {
 	neighbors, ok := topology[node.ID()]
@@ -142,8 +194,6 @@ func DefaultTopology(node *maelstrom.Node, msg maelstrom.Message, topology map[s
 	}
 	return neighbors, nil
 }
-
-
 
 // Run starts the inner maelstrom sever.
 func (n *Broadcast) Run() error {
@@ -203,6 +253,93 @@ func (b *BroadcastMessage) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// IntBroadcastMessage represents the message received in a broadcast operation
+// from another internal node.
+type IntBroadcastMessage struct {
+	MsgID   int `json:"msg_id,omitempty"`
+	Message int `json:"message,omitempty"`
+	// Sent contatins the set of nodes that this message has been sent so far.
+	Sent bitset.BitSet `json:"sent,omitempty"`
+}
+
+// MarshalJSON marshals a [BroadcastMessage].
+func (b IntBroadcastMessage) MarshalJSON() ([]byte, error) {
+	data := map[string]any{
+		"type":    "broadcast",
+		"message": b.Message,
+	}
+
+	if b.Sent.Len() == 0 {
+		buff, err := b.Sent.MarshalBinary()
+		if err != nil {
+			return nil, err
+		}
+		value := base64.StdEncoding.EncodeToString(buff)
+		data["sent"] = value
+	}
+	if b.MsgID != 0 {
+		data["msg_id"] = b.MsgID
+	}
+	return json.Marshal(data)
+}
+
+// UnmarshalJSON unmarshals a [BroadcastMessage].
+func (b *IntBroadcastMessage) UnmarshalJSON(data []byte) error {
+	var body map[string]any
+	err := json.Unmarshal(data, &body)
+	if err != nil {
+		return err
+	}
+	typ := body["type"]
+	if typ.(string) != "broadcast" {
+		err := fmt.Errorf("invalid message of type broadcast, expected message type broadcast, got type: %v", typ)
+		return err
+	}
+	rawMessage, ok := body["message"]
+	if !ok {
+		err := errors.New("invalid message of type broadcast, the message field does not exist")
+		return err
+	}
+	payload := int(rawMessage.(float64))
+	msgID := 0
+	if id, ok := body["msg_id"]; ok {
+		fMsgID, ok := id.(float64)
+		if !ok {
+			err := fmt.Errorf("invalid message of type broadcast, the message field msg_id is not a string, is a: %T", id)
+			return err
+		}
+		msgID = int(fMsgID)
+	}
+
+	var sentBitSet bitset.BitSet
+	sent, ok := body["sent"]
+	if ok {
+		sentStr, ok := sent.(string)
+		if !ok {
+			err := fmt.Errorf("invalid message of type broadcast, the message field sent is not a string, is a: %T", sent)
+			return err
+		}
+		sentBytes, err := base64.StdEncoding.DecodeString(sentStr)
+		if err != nil {
+			err := fmt.Errorf("invalid message of type broadcast, the message field sent: %s, can't be decoded: %+w, ", sentStr, err)
+			return err
+		}
+		err = sentBitSet.UnmarshalBinary(sentBytes)
+		if err != nil {
+			err := fmt.Errorf("invalid message of type broadcast, the message field sent: %s, can't be decoded: %+w, ", sentBytes, err)
+			return err
+		}
+	}
+
+	broadcast := IntBroadcastMessage{
+		Message: payload,
+		MsgID:   msgID,
+		Sent:    sentBitSet,
+	}
+	*b = broadcast
+	return nil
+}
+
 // TopologyMessage represents a message received in a topology operation.
 type TopologyMessage struct {
 	Topology map[string][]string
@@ -248,6 +385,7 @@ func (t *TopologyMessage) UnmarshalJSON(data []byte) error {
 type NodeBroadcastMessage struct {
 	Destination string
 	Message     int
+	Sent        bitset.BitSet
 }
 
 func (n NodeBroadcastMessage) ID() int {
@@ -259,8 +397,12 @@ func (n NodeBroadcastMessage) Dest() string {
 }
 
 func (n NodeBroadcastMessage) Body() map[string]any {
-	return map[string]any{
+	body := map[string]any{
 		"type":    "broadcast",
 		"message": n.Message,
 	}
+	buff, _ := n.Sent.MarshalBinary()
+	sent := base64.StdEncoding.EncodeToString(buff)
+	body["sent"] = sent
+	return body
 }
