@@ -10,26 +10,13 @@ import (
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 )
 
-// NodeHandler defines a maelstrom handler that apart from the message where
-// it's registered received the maelstrom node where the handler is registered.
-type NodeHandler func(msg maelstrom.Message, node *maelstrom.Node) error
-
-// Register the NodeHandler for the specified type in the given node.
-func (m NodeHandler) Register(typ string, node *maelstrom.Node) {
-	f := func(msg maelstrom.Message) error {
-		return m(msg, node)
-	}
-	node.Handle(typ, f)
-}
-
-// Broadcaster sends messages to a specified destination node. If doesn't
+// Broadcaster sends messages to a specified destination node with retries. If doesn't
 // receives an ACK from the destination node in the specified amount of time it
 // retries the operation.
 type Broadcaster struct {
 	sync.RWMutex
 	Node       *maelstrom.Node
 	ACKTimeout time.Duration
-	wg         sync.WaitGroup
 	pennding   *pendingMessages
 }
 
@@ -39,7 +26,6 @@ func NewBroadcaster(node *maelstrom.Node) *Broadcaster {
 	return &Broadcaster{
 		Node:       node,
 		ACKTimeout: 5 * time.Second,
-		wg:         sync.WaitGroup{},
 		pennding:   msgSet,
 	}
 }
@@ -70,7 +56,7 @@ func (b *Broadcaster) sendMessage(msg BroadcasterMessage) {
 			} //else {
 			// 	log.Printf("Finished broadcast operation, message: %+v, to: %+v, retry #%d\n", msg.Body(), msg.Dest(), retry)
 			// }
-			if ok := b.pennding.RemoveMessage(msg); !ok {
+			if ok := b.pennding.RemoveMessage(msg.Dest(), msg.ID()); !ok {
 				log.Printf("Unexpected error removing message: %+v, destination not present in the destinations set\n", msg)
 			}
 			break
@@ -80,20 +66,20 @@ func (b *Broadcaster) sendMessage(msg BroadcasterMessage) {
 
 // BroadcasterMessage defines a message to be sent by the [Broadcaster].
 type BroadcasterMessage interface {
-	ID() int
+	ID() string
 	Body() map[string]any
 	Dest() string
 }
 
 type pendingMessages struct {
 	sync.Mutex
-	destMessages map[string]map[int]BroadcasterMessage
+	destMessages map[string]map[string]BroadcasterMessage
 }
 
 func newPendingMessages() *pendingMessages {
 	return &pendingMessages{
 		Mutex:        sync.Mutex{},
-		destMessages: map[string]map[int]BroadcasterMessage{},
+		destMessages: map[string]map[string]BroadcasterMessage{},
 	}
 }
 
@@ -106,7 +92,7 @@ func (p *pendingMessages) AddIfNotExits(msg BroadcasterMessage) bool {
 	defer p.Unlock()
 	destinationSet, ok := p.destMessages[dest]
 	if !ok {
-		destinationSet = map[int]BroadcasterMessage{}
+		destinationSet = map[string]BroadcasterMessage{}
 		p.destMessages[dest] = destinationSet
 	}
 	// If the message is already being sent do nothing.
@@ -118,16 +104,16 @@ func (p *pendingMessages) AddIfNotExits(msg BroadcasterMessage) bool {
 
 }
 
-// Removes the given message if exist and returning if the messages has been
+// Removes the given message if exist returning if the messages has been
 // removed.
-func (p *pendingMessages) RemoveMessage(msg BroadcasterMessage) bool {
+func (p *pendingMessages) RemoveMessage(dest string, ID string) bool {
 	p.Lock()
 	defer p.Unlock()
-	destinationSet, ok := p.destMessages[msg.Dest()]
+	destinationSet, ok := p.destMessages[dest]
 	if !ok {
 		return false
 
 	}
-	delete(destinationSet, msg.ID())
+	delete(destinationSet, ID)
 	return true
 }
