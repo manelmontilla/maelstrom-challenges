@@ -131,9 +131,18 @@ func (n *Broadcast) HandleBroadcast(msg maelstrom.Message) error {
 	if err := json.Unmarshal(msg.Body, &bMsg); err != nil {
 		return err
 	}
+	err := n.processBroadcastMessage(bMsg)
+	if err != nil {
+		return err
+	}
+	return n.Reply(msg, map[string]any{"type": "broadcast_ok"})
+}
+
+// ProcessBroadcastMessage processes a broadcast message
+func (n *Broadcast) processBroadcastMessage(msg BroadcastMessage) error {
 	var exist bool
 	n.Lock()
-	_, exist = n.messages[bMsg.Message]
+	_, exist = n.messages[msg.Message]
 	if !exist {
 		length := len(n.NodeIDs())
 		bsInit := bitset.New(uint(length))
@@ -143,20 +152,16 @@ func (n *Broadcast) HandleBroadcast(msg maelstrom.Message) error {
 			return err
 		}
 		bsInit = bsInit.Set(uint(selfIndex))
-		n.messages[bMsg.Message] = bsInit
+		n.messages[msg.Message] = bsInit
 	}
-	msgSent := n.messages[bMsg.Message]
-	msgSent = msgSent.Union(&bMsg.Sent)
+	msgSent := n.messages[msg.Message]
+	msgSent = msgSent.Union(&msg.Sent)
 
-	n.messages[bMsg.Message] = msgSent
+	n.messages[msg.Message] = msgSent
 
 	alreadySent := msgSent.Clone()
 	neighbors := nodeIDs(n.neighbors)
 	n.Unlock()
-	err := n.Reply(msg, map[string]any{"type": "broadcast_ok"})
-	if err != nil {
-		return err
-	}
 	if exist {
 		return nil
 	}
@@ -181,12 +186,12 @@ func (n *Broadcast) HandleBroadcast(msg maelstrom.Message) error {
 			log.Printf("error in broadcast: %+v", err)
 		}
 		sent = sent.Union(alreadySent)
-		log.Printf("Broadcast Message: %d, already sent to: %+v, neighbors: %+v, sending to: %+v", bMsg.Message, alreadySentIDs, neighbors, sendTo)
+		log.Printf("Broadcast Message: %d, already sent to: %+v, neighbors: %+v, sending to: %+v", msg.Message, alreadySentIDs, neighbors, sendTo)
 		for _, s := range sendTo {
 
 			nodeMsg := BroadcastMessage{
 				Destination: s,
-				Message:     bMsg.Message,
+				Message:     msg.Message,
 				Sent:        *sent,
 			}
 			n.broadcaster.Send(nodeMsg)

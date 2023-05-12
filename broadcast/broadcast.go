@@ -14,25 +14,33 @@ import (
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 )
 
-// Message define the set of types that a a BatchBroadcaster can handle.
-type Message[T any] interface {
+// MessageWithBody defines the set of types that represent a message that can
+// be created from a body.
+type MessageWithBody[T any] interface {
 	*T
+	FromBody(map[string]any)
+}
+
+// Message defines the set of types that a BatchBroadcaster can sent in
+// bacthes.
+type Message[T any] interface {
+	MessageWithBody[T]
 	Body() map[string]any
-	WithBody(map[string]any)
 	ID() string
 	Dest() string
 }
 
 // BatchBroadcaster sends messages to a specified destination node. It
-// accumulates the messages during a specified amount of time before send them
-// in a message of type broadcast_batch. It retries the operation if the dest
-// doesn't ack the message before a specified amount of time.
+// accumulates the messages during a specified amount of time before it sends
+// them in a message of type broadcast_batch, retrying the operation if the
+// destination doesn't ack the message before a specified amount of time.
 type BatchBroadcaster[T any, P Message[T]] struct {
 	sync.RWMutex
 	Node       *maelstrom.Node
 	ACKTimeout time.Duration
 	BatchTime  time.Duration
 	BufferLen  int
+	processor  func(msg P) error
 	messages   chan P
 	done       chan struct{}
 }
@@ -40,18 +48,36 @@ type BatchBroadcaster[T any, P Message[T]] struct {
 // NewBatchBroadcaster creates a new broadcaster that send messages in batches.
 // The broadcaster accumulates the messages for each different destination,
 // during the specified batch time, after that, it sends the batch of messages
-// to each destination.
-func NewBatchBroadcaster[T any, P Message[T]](ctx context.Context, node *maelstrom.Node) *BatchBroadcaster[T, P] {
+// to each destination. The BatchBroadcaster also will handle the batched
+// broadcast messages by calling once the function processor per each message
+// in a batch.
+func NewBatchBroadcaster[T any, P Message[T]](ctx context.Context, node *maelstrom.Node, processor func(msg P) error) *BatchBroadcaster[T, P] {
 	b := &BatchBroadcaster[T, P]{
 		Node:       node,
+		processor:  processor,
 		BufferLen:  50,
 		ACKTimeout: 5 * time.Second,
 		BatchTime:  2 * time.Second,
 	}
 	b.messages = make(chan P, b.BufferLen)
 	b.done = make(chan struct{}, 1)
+	// Register the handler for the batch broadcast messages.
+	node.Handle("batch_broadcast", b.handleBatchBroadcast)
 	go b.aggregateAndSend(ctx, b.BatchTime, b.done)
 	return b
+}
+
+func (b *BatchBroadcaster[T, P]) handleBatchBroadcast(msg maelstrom.Message) error {
+	var bMsg BatchBroadcastMessage[T, P]
+	if err := json.Unmarshal(msg.Body, &bMsg); err != nil {
+		return err
+	}
+	for _, msg := range bMsg.msgs {
+		if err := b.processor(msg); err != nil {
+			return err
+		}
+	}
+	return b.Node.Reply(msg, map[string]any{"type": "batch_broadcast_ok"})
 }
 
 // Send sends a Broadcast message with retries. This function is async unless
@@ -151,7 +177,6 @@ func newBatchBroadcastMessage[T any, P Message[T]](dst string, msgs []P) BatchBr
 		dest: dst,
 		msgs: msgs,
 	}
-
 }
 
 func (b BatchBroadcastMessage[T, P]) ID() string {
@@ -200,7 +225,7 @@ func (b *BatchBroadcastMessage[T, P]) UnmarshalJSON(data []byte) error {
 	var messages []P
 	for _, body := range bodies {
 		var msg P
-		msg.WithBody(body)
+		msg.FromBody(body)
 		messages = append(messages, msg)
 	}
 	broadcast := BatchBroadcastMessage[T, P]{
