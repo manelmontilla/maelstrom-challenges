@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -12,7 +13,7 @@ import (
 	"github.com/bits-and-blooms/bitset"
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 
-	"github.com/manelmontilla/maelstrom-challenges/infra"
+	"github.com/manelmontilla/maelstrom-challenges/broadcast"
 )
 
 func main() {
@@ -80,7 +81,7 @@ type Broadcast struct {
 	neighbors   []nID
 	topology    Topology
 	messages    map[int]*bitset.BitSet
-	broadcaster *infra.Broadcaster
+	broadcaster *broadcast.BatchBroadcaster[BroadcastMessage, *BroadcastMessage]
 	sync.RWMutex
 }
 
@@ -88,13 +89,13 @@ type Broadcast struct {
 func NewBroadcast() *Broadcast {
 	node := maelstrom.NewNode()
 	b := &Broadcast{
-		Node:        node,
-		messages:    map[int]*bitset.BitSet{},
-		RWMutex:     sync.RWMutex{},
-		broadcaster: infra.NewBroadcaster(node),
-		topology:    DefaultTopology,
+		Node:     node,
+		messages: map[int]*bitset.BitSet{},
+		RWMutex:  sync.RWMutex{},
+		topology: DefaultTopology,
 	}
-
+	broadcaster := broadcast.NewBatchBroadcaster(context.Background(), node, b.processBroadcastMessage)
+	b.broadcaster = broadcaster
 	node.Handle("topology", b.HandleTopology)
 	node.Handle("read", b.HandleRead)
 	node.Handle("broadcast", b.HandleBroadcast)
@@ -131,7 +132,7 @@ func (n *Broadcast) HandleBroadcast(msg maelstrom.Message) error {
 	if err := json.Unmarshal(msg.Body, &bMsg); err != nil {
 		return err
 	}
-	err := n.processBroadcastMessage(bMsg)
+	err := n.processBroadcastMessage(&bMsg)
 	if err != nil {
 		return err
 	}
@@ -139,7 +140,7 @@ func (n *Broadcast) HandleBroadcast(msg maelstrom.Message) error {
 }
 
 // ProcessBroadcastMessage processes a broadcast message
-func (n *Broadcast) processBroadcastMessage(msg BroadcastMessage) error {
+func (n *Broadcast) processBroadcastMessage(msg *BroadcastMessage) error {
 	var exist bool
 	n.Lock()
 	_, exist = n.messages[msg.Message]
@@ -194,7 +195,7 @@ func (n *Broadcast) processBroadcastMessage(msg BroadcastMessage) error {
 				Message:     msg.Message,
 				Sent:        *sent,
 			}
-			n.broadcaster.Send(nodeMsg)
+			n.broadcaster.Send(&nodeMsg, s)
 		}
 	}()
 	return nil
@@ -268,7 +269,7 @@ func (b BroadcastMessage) ID() string {
 
 // Dest returns the dest node of the message.
 func (b BroadcastMessage) Dest() string {
-	return strconv.FormatInt(int64(b.Message), 10)
+	return b.Destination
 }
 
 // MarshalJSON marshals a [BroadcastMessage].
@@ -276,13 +277,8 @@ func (b BroadcastMessage) MarshalJSON() ([]byte, error) {
 	return json.Marshal(b.Body())
 }
 
-// UnmarshalJSON unmarshals a [BroadcastMessage].
-func (b *BroadcastMessage) UnmarshalJSON(data []byte) error {
-	var body map[string]any
-	err := json.Unmarshal(data, &body)
-	if err != nil {
-		return err
-	}
+// FromBody unmarshals a [BroadcastMessage] from a map.
+func (b *BroadcastMessage) FromBody(body map[string]any) error {
 	typ := body["type"]
 	if typ.(string) != "broadcast" {
 		err := fmt.Errorf("invalid message of type broadcast, expected message type broadcast, got type: %v", typ)
@@ -331,6 +327,16 @@ func (b *BroadcastMessage) UnmarshalJSON(data []byte) error {
 	}
 	*b = broadcast
 	return nil
+}
+
+// UnmarshalJSON unmarshals a [BroadcastMessage].
+func (b *BroadcastMessage) UnmarshalJSON(data []byte) error {
+	var body map[string]any
+	err := json.Unmarshal(data, &body)
+	if err != nil {
+		return err
+	}
+	return b.FromBody(body)
 }
 
 // TopologyMessage represents a message received in a topology operation.

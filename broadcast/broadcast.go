@@ -18,7 +18,7 @@ import (
 // be created from a body.
 type MessageWithBody[T any] interface {
 	*T
-	FromBody(map[string]any)
+	FromBody(map[string]any) error
 }
 
 // Message defines the set of types that a BatchBroadcaster can sent in
@@ -68,6 +68,7 @@ func NewBatchBroadcaster[T any, P Message[T]](ctx context.Context, node *maelstr
 }
 
 func (b *BatchBroadcaster[T, P]) handleBatchBroadcast(msg maelstrom.Message) error {
+	log.Printf("BatchBroadcaster - handling batch message %v", msg)
 	var bMsg BatchBroadcastMessage[T, P]
 	if err := json.Unmarshal(msg.Body, &bMsg); err != nil {
 		return err
@@ -109,19 +110,24 @@ loop:
 			log.Print("BatchBroadcaster - Stopping sending messages")
 			break loop
 		case msg := <-b.messages:
+			log.Printf("BatchBroadcaster - Sending message %+v, Dest: %v", msg, msg.Dest())
 			msgs, ok := msgByDest[msg.Dest()]
 			if !ok {
 				msgs = map[string]P{}
 			}
 			msgs[msg.ID()] = msg
+			msgByDest[msg.Dest()] = msgs
 		case <-ticker.C:
+			log.Print("BatchBroadcaster - Sending batch of messages")
 			for dst, messages := range msgByDest {
 				var batchOfMessages []P
 				for _, msg := range messages {
 					batchOfMessages = append(batchOfMessages, msg)
 				}
+				log.Printf("BatchBroadcaster - Batch message destination: %+v", dst)
 				msg := newBatchBroadcastMessage(dst, batchOfMessages)
 				wg.Add(1)
+				log.Printf("BatchBroadcaster - Sending batch message %+v", msg)
 				b.sendWithRetries(dst, msg.Body(), &wg, b.Node)
 			}
 			msgByDest = map[string]map[string]P{}
@@ -137,9 +143,10 @@ func (b *BatchBroadcaster[T, P]) sendWithRetries(dest string, body map[string]an
 		retry := 0
 	Loop:
 		for {
-			// log.Printf("Sending broadcast message: %+v, to: %+v, retry #%d\n", msg.Body(), msg.Dest(), retry)
+			//log.Printf("Sending broadcast message: %+v, to: %+v, retry #%d\n", msg.Body(), msg.Dest(), retry)
 			ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(b.ACKTimeout))
 			defer cancel()
+			log.Printf("BatchBroadcaster - Sending message body %+v to: %s, retry #%d", body, dest, retry)
 			_, err := node.SyncRPC(ctx, dest, body)
 			if errors.Is(err, context.DeadlineExceeded) {
 				retry++
@@ -217,16 +224,30 @@ func (b *BatchBroadcastMessage[T, P]) UnmarshalJSON(data []byte) error {
 		err := errors.New("invalid message of type batch_broadcast, the messages field does not exist")
 		return err
 	}
-	bodies, ok := untypedBodies.([]map[string]any)
+	bodies, ok := untypedBodies.([]any)
 	if !ok {
 		err := fmt.Errorf("invalid message of type batch_broadcast, unexpected messages type: %T", untypedBodies)
 		return err
 	}
+	var mapBodies []map[string]any
+	for _, b := range bodies {
+		mapBody, ok := b.(map[string]any)
+		if !ok {
+			err := fmt.Errorf("invalid message of type batch_broadcast, unexpected messages type: %T", b)
+			return err
+		}
+		mapBodies = append(mapBodies, mapBody)
+	}
 	var messages []P
-	for _, body := range bodies {
-		var msg P
-		msg.FromBody(body)
-		messages = append(messages, msg)
+	for _, body := range mapBodies {
+		var msg T
+		log.Printf("Created empty message: %v, type: %T", msg, msg)
+		pMsg := P(&msg)
+		err := pMsg.FromBody(body)
+		if err != nil {
+			return err
+		}
+		messages = append(messages, pMsg)
 	}
 	broadcast := BatchBroadcastMessage[T, P]{
 		msgs: messages,
