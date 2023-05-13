@@ -240,7 +240,6 @@ func (b *BatchBroadcastMessage[T, P]) UnmarshalJSON(data []byte) error {
 	var messages []P
 	for _, body := range mapBodies {
 		var msg T
-		log.Printf("Created empty message: %v, type: %T", msg, msg)
 		pMsg := P(&msg)
 		err := pMsg.FromBody(body)
 		if err != nil {
