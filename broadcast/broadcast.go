@@ -57,7 +57,7 @@ func NewBatchBroadcaster[T any, P Message[T]](ctx context.Context, node *maelstr
 		processor:  processor,
 		BufferLen:  50,
 		ACKTimeout: 5 * time.Second,
-		BatchTime:  3 * time.Millisecond,
+		BatchTime:  10 * time.Millisecond,
 	}
 	b.messages = make(chan P, b.BufferLen)
 	b.done = make(chan struct{}, 1)
