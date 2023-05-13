@@ -46,18 +46,17 @@ type BatchBroadcaster[T any, P Message[T]] struct {
 }
 
 // NewBatchBroadcaster creates a new broadcaster that send messages in batches.
-// The broadcaster accumulates the messages for each different destination,
-// during the specified batch time, after that, it sends the batch of messages
-// to each destination. The BatchBroadcaster also will handle the batched
-// broadcast messages by calling once the function processor per each message
-// in a batch.
+// The broadcaster accumulates the messages for each different destination
+// during the specified batch time before sending them. The BatchBroadcaster
+// also will handle the batched broadcast messages by calling once the function
+// processor per each message in a batch.
 func NewBatchBroadcaster[T any, P Message[T]](ctx context.Context, node *maelstrom.Node, processor func(msg P) error) *BatchBroadcaster[T, P] {
 	b := &BatchBroadcaster[T, P]{
 		Node:       node,
 		processor:  processor,
 		BufferLen:  50,
 		ACKTimeout: 5 * time.Second,
-		BatchTime:  10 * time.Millisecond,
+		BatchTime:  150 * time.Millisecond,
 	}
 	b.messages = make(chan P, b.BufferLen)
 	b.done = make(chan struct{}, 1)
