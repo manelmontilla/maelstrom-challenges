@@ -5,3 +5,5 @@
 - [Echo challenge](./cmd/maelstrom-echo/README.md)
 
 - [Broadcast challenge](./cmd/maelstrom-broadcast/README.md)
+
+- [Grow-Only Counter](./cmd/gg-gcounter-challenge/README.md)
