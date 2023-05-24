@@ -9,7 +9,7 @@ import (
 
 func main() {
 	n := maelstrom.NewNode()
-	echo := Echo{
+	echo := EchoNode{
 		Node: n,
 	}
 	n.Handle("echo", echo.handleEcho)
@@ -19,12 +19,12 @@ func main() {
 	}
 }
 
-// Echo defines a node that attends to echo messages.
-type Echo struct {
+// EchoNode defines a node that attends to echo messages.
+type EchoNode struct {
 	*maelstrom.Node
 }
 
-func (e *Echo) handleEcho(msg maelstrom.Message) error {
+func (e *EchoNode) handleEcho(msg maelstrom.Message) error {
 	var body map[string]any
 	err := json.Unmarshal(msg.Body, &body)
 	if err != nil {

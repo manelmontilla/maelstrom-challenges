@@ -17,7 +17,7 @@ import (
 )
 
 func main() {
-	n := NewBroadcast()
+	n := NewBroadcastNode()
 	if err := n.Run(); err != nil {
 		log.Fatalf("node stopped with err: %v", err)
 	}
@@ -75,8 +75,8 @@ func (n nID) Index() (uint8, error) {
 	return uint8(i), nil
 }
 
-// Broadcast represents a broadcast server.
-type Broadcast struct {
+// BroadcastNode represents a broadcast server.
+type BroadcastNode struct {
 	*maelstrom.Node
 	neighbors   []nID
 	topology    Topology
@@ -85,10 +85,10 @@ type Broadcast struct {
 	sync.RWMutex
 }
 
-// NewBroadcast returns a new broadcast code ready to be run.
-func NewBroadcast() *Broadcast {
+// NewBroadcastNode returns a new broadcast code ready to be run.
+func NewBroadcastNode() *BroadcastNode {
 	node := maelstrom.NewNode()
-	b := &Broadcast{
+	b := &BroadcastNode{
 		Node:     node,
 		messages: map[int]*bitset.BitSet{},
 		RWMutex:  sync.RWMutex{},
@@ -105,7 +105,7 @@ func NewBroadcast() *Broadcast {
 }
 
 // HandleRead handles messages of type read.
-func (n *Broadcast) HandleRead(msg maelstrom.Message) error {
+func (n *BroadcastNode) HandleRead(msg maelstrom.Message) error {
 	var body map[string]any
 	err := json.Unmarshal(msg.Body, &body)
 	if err != nil {
@@ -127,7 +127,7 @@ func (n *Broadcast) HandleRead(msg maelstrom.Message) error {
 }
 
 // HandleBroadcast handles messages of type broadcast.
-func (n *Broadcast) HandleBroadcast(msg maelstrom.Message) error {
+func (n *BroadcastNode) HandleBroadcast(msg maelstrom.Message) error {
 	var bMsg BroadcastMessage
 	if err := json.Unmarshal(msg.Body, &bMsg); err != nil {
 		return err
@@ -140,7 +140,7 @@ func (n *Broadcast) HandleBroadcast(msg maelstrom.Message) error {
 }
 
 // ProcessBroadcastMessage processes a broadcast message
-func (n *Broadcast) processBroadcastMessage(msg *BroadcastMessage) error {
+func (n *BroadcastNode) processBroadcastMessage(msg *BroadcastMessage) error {
 	var exist bool
 	n.Lock()
 	_, exist = n.messages[msg.Message]
@@ -202,7 +202,7 @@ func (n *Broadcast) processBroadcastMessage(msg *BroadcastMessage) error {
 }
 
 // HandleTopology handles messages of type topology.
-func (n *Broadcast) HandleTopology(msg maelstrom.Message) error {
+func (n *BroadcastNode) HandleTopology(msg maelstrom.Message) error {
 	var topologyMsg TopologyMessage
 	if err := json.Unmarshal(msg.Body, &topologyMsg); err != nil {
 		return fmt.Errorf("error unmarshalling topology: %w", err)
@@ -234,7 +234,7 @@ func DefaultTopology(node *maelstrom.Node, msg maelstrom.Message, topology map[s
 }
 
 // Run starts the inner maelstrom sever.
-func (n *Broadcast) Run() error {
+func (n *BroadcastNode) Run() error {
 	return n.Node.Run()
 }
 
