@@ -142,7 +142,6 @@ func (b *BatchBroadcaster[T, P]) sendWithRetries(dest string, body map[string]an
 		retry := 0
 	Loop:
 		for {
-			//log.Printf("Sending broadcast message: %+v, to: %+v, retry #%d\n", msg.Body(), msg.Dest(), retry)
 			ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(b.ACKTimeout))
 			defer cancel()
 			log.Printf("BatchBroadcaster - Sending message body %+v to: %s, retry #%d", body, dest, retry)
