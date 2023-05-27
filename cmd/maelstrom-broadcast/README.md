@@ -18,7 +18,7 @@ and send them in batches
 
 2. Store together with each message (messages are identified using integers) a
 list indicating the nodes that we know already have the messages. Send the
-bit field in each broadcast messsage and update it with the one received
+bit field in each broadcast message and update it with the one received
 
 ## Solution stats
 
@@ -27,4 +27,4 @@ Using windows of 150 ms for aggregating messages.
 - Messages-per-operation: 11.656922
 - Latencies:
 Median: 751 ms
-Maximun: 1208 ms
+Maximum: 1208 ms

@@ -26,8 +26,8 @@ The g-counter workload expects that all the nodes return the last version of the
 counter after some time. In order to fulfill that requirement, when a node
 receives a read operation, it reads the value from the kv store, asks the other
 nodes to read the value from the store, and returns the value with the highest
-version number. Technicaly we could just store the value without a version and
+version number. Technically we could just store the value without a version and
 return the max value of all the nodes, but using a version, allows to use this
-solution to things more complex than a grow only counnter.
+solution to things more complex than a grow only counter.
 
 [maelstrom-seq-kv]:https://github.com/jepsen-io/maelstrom/blob/main/doc/services.md#seq-kv

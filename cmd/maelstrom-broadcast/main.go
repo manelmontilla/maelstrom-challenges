@@ -205,7 +205,7 @@ func (n *BroadcastNode) processBroadcastMessage(msg *BroadcastMessage) error {
 func (n *BroadcastNode) HandleTopology(msg maelstrom.Message) error {
 	var topologyMsg TopologyMessage
 	if err := json.Unmarshal(msg.Body, &topologyMsg); err != nil {
-		return fmt.Errorf("error unmarshalling topology: %w", err)
+		return fmt.Errorf("error unmarshalling topology: %v", err)
 	}
 	neighbors, err := n.topology(n.Node, msg, topologyMsg.Topology)
 	if err != nil {
@@ -247,7 +247,7 @@ type BroadcastMessage struct {
 	Sent bitset.BitSet `json:"sent,omitempty"`
 }
 
-// Body returns the body of the messsage as a map.
+// Body returns the body of the message as a map.
 func (b BroadcastMessage) Body() map[string]any {
 	buff, _ := b.Sent.MarshalBinary()
 	sent := base64.StdEncoding.EncodeToString(buff)

@@ -24,7 +24,7 @@ type ReplicateSet[T any] interface {
 	Values() []T
 }
 
-// Replicator replicates a set of values continuesly
+// Replicator replicates a set of values continuously
 // every period of time.
 type Replicator[T any] struct {
 	sender            RPCSender

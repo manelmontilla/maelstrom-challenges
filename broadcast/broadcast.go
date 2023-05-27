@@ -162,7 +162,7 @@ func (b *BatchBroadcaster[T, P]) sendWithRetries(dest string, body map[string]an
 }
 
 // BatchBroadcastMessage is used by the batch broadcaster to send a batch of
-// messsages.
+// messages.
 type BatchBroadcastMessage[T any, P Message[T]] struct {
 	id   string
 	dest string
