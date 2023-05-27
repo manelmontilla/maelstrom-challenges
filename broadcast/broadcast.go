@@ -90,7 +90,7 @@ func (b *BatchBroadcaster[T, P]) Send(msg P, dest string) {
 	default:
 		log.Printf("BatchBroadcaster - Messages buffer is full")
 	}
-	// Try to write again to backpreassure.
+	// Try to write again to back-pressure.
 	b.messages <- msg
 	log.Printf("Message buffered")
 }
