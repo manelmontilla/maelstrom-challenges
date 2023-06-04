@@ -1,7 +1,6 @@
-// package main implements the a solution to the grow only counter of the
-// [gossip glomers challenges].
+// The gg-counter-challenge implements the a solution to the grow only counter of the [gossip glomers challenges].
 //
-// [gossip glomers challenge]: https://fly.io/dist-sys/4/
+// [gossip glomers challenges]: https://fly.io/dist-sys/4/
 package main
 
 import (
@@ -22,14 +21,14 @@ func main() {
 }
 
 // KVGCounterNode is a grow only counter that uses the sequential consistency
-// key value store provied by Maelstrom to implement a distributed grow only
+// key value store provided by Maelstrom to implement a distributed grow only
 // counter.
 type KVGCounterNode struct {
 	*maelstrom.Node
 	kv *maelstrom.KV
 }
 
-// NewKVGCounterNode creates a new node that implements a grow only counter
+// NewKVGCounterNode creates a new node that implements a grow only counter.
 func NewKVGCounterNode() *KVGCounterNode {
 	node := maelstrom.NewNode()
 	kv := maelstrom.NewSeqKV(node)

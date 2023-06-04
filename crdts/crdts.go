@@ -96,7 +96,7 @@ func NewPNCounter() *PNCounter {
 	}
 }
 
-// PNCounter is CRDTS that can be incremented and decremented.
+// PNCounter is CRDT that can be incremented and decremented.
 type PNCounter struct {
 	sync.RWMutex
 	// Inc stores the positive values.
@@ -158,7 +158,7 @@ func (p *PNCounter) Read() int {
 	return sum
 }
 
-// CounterNode is a node that implements counter CRDTs as defined in [maelstrom g-counter].
+// CounterNode is a node that implements counter CRDT as defined in [maelstrom g-counter].
 //
 // [maelstrom g-counter]: https://github.com/jepsen-io/maelstrom/blob/main/doc/04-crdts/02-counters.md
 type CounterNode struct {
@@ -167,7 +167,7 @@ type CounterNode struct {
 	Counter    CRCounter
 }
 
-// NewCounterNode creates a node that can handle counter CRDTs.
+// NewCounterNode creates a node that can handle counter CRDT.
 func NewCounterNode(counter CRCounter) *CounterNode {
 	node := maelstrom.NewNode()
 	replicator := broadcast.NewReplicator[CounterItem](context.Background(), counter, node, 1*time.Second)
