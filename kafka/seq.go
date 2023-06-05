@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"time"
 
@@ -72,7 +73,7 @@ func (k *SeqNode) HandleCurrent(msg maelstrom.Message) error {
 	err = k.kv.ReadInto(context.Background(), name, &value)
 	var rpcErr *maelstrom.RPCError
 	if errors.As(err, &rpcErr) && rpcErr.Code == maelstrom.KeyDoesNotExist {
-		err = nil
+		return fmt.Errorf("Sequence %s does not exist", name)
 	}
 	if err != nil {
 		log.Printf("error handling current message, err: %+v", err)
@@ -88,9 +89,13 @@ func (k *SeqNode) HandleCurrent(msg maelstrom.Message) error {
 	if other.Counter > value.Counter {
 		value = other
 	}
-	reply := map[string]interface{}{
-		"type":  "current_ok",
-		"value": value.Counter,
+	type replyMsg struct {
+		Type  string `json:"type"`
+		Value int    `json:"value"`
+	}
+	reply := replyMsg{
+		Type:  "current_ok",
+		Value: value.Counter,
 	}
 	return k.Reply(msg, reply)
 }
