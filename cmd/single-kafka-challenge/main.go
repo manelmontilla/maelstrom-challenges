@@ -1,6 +1,6 @@
-// The single-kafka-challenge implements the [single kafka challenge].
+// The single-kafka-challenge implements the [single node kafka challenge].
 //
-// [single kafka challenge]: https://fly.io/dist-sys/5a
+// [single node kafka challenge]: https://fly.io/dist-sys/5a
 package main
 
 import (
