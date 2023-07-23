@@ -90,7 +90,7 @@ func (b *BatchBroadcaster[T, P]) Send(msg P, dest string) {
 	default:
 		log.Printf("BatchBroadcaster - Messages buffer is full")
 	}
-	// Try to write again to back-pressure.
+	// Try to write again to backpreassure.
 	b.messages <- msg
 	log.Printf("Message buffered")
 }
@@ -142,6 +142,7 @@ func (b *BatchBroadcaster[T, P]) sendWithRetries(dest string, body map[string]an
 		retry := 0
 	Loop:
 		for {
+			//log.Printf("Sending broadcast message: %+v, to: %+v, retry #%d\n", msg.Body(), msg.Dest(), retry)
 			ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(b.ACKTimeout))
 			defer cancel()
 			log.Printf("BatchBroadcaster - Sending message body %+v to: %s, retry #%d", body, dest, retry)
@@ -162,7 +163,7 @@ func (b *BatchBroadcaster[T, P]) sendWithRetries(dest string, body map[string]an
 }
 
 // BatchBroadcastMessage is used by the batch broadcaster to send a batch of
-// messages.
+// messsages.
 type BatchBroadcastMessage[T any, P Message[T]] struct {
 	id   string
 	dest string

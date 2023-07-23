@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"time"
 
@@ -22,9 +23,9 @@ type SeqNode struct {
 	kv *maelstrom.KV
 }
 
-// NewSeqNode creates a new node that implements a Sequence.
-func NewSeqNode() *SeqNode {
-	node := maelstrom.NewNode()
+// NewSeqNode creates a new node that implements a sequentially consistent
+// sequence in the given maelstrom node.
+func NewSeqNode(node *maelstrom.Node) *SeqNode {
 	kv := maelstrom.NewSeqKV(node)
 	gnode := SeqNode{
 		Node: node,
@@ -49,10 +50,18 @@ func (k *SeqNode) HandleNext(msg maelstrom.Message) error {
 		return errors.New("name cannot be empty")
 	}
 	name := addMsg.Name
-	if err := k.syncWrite(name); err != nil {
+	value, err := k.syncWrite(name)
+	if err != nil {
 		return err
 	}
-	return k.Reply(msg, map[string]any{"type": "next_ok"})
+	response := struct {
+		Type  string `json:"type"`
+		Value int    `json:"value"`
+	}{
+		Type:  "next_ok",
+		Value: value,
+	}
+	return k.Reply(msg, response)
 }
 
 // HandleCurrent handles the current messages for the sequence.
@@ -72,15 +81,16 @@ func (k *SeqNode) HandleCurrent(msg maelstrom.Message) error {
 	err = k.kv.ReadInto(context.Background(), name, &value)
 	var rpcErr *maelstrom.RPCError
 	if errors.As(err, &rpcErr) && rpcErr.Code == maelstrom.KeyDoesNotExist {
-		err = nil
+		return fmt.Errorf("Sequence %s does not exist", name)
 	}
 	if err != nil {
 		log.Printf("error handling current message, err: %+v", err)
 		return err
 	}
 	// Using a sequential consistent key value store means we can return stale
-	// values of the counter, in order to get the newest value we also read the
-	// values from the other nodes and return the one with the highest value.
+	// values of the counter, so, in order to get the newest value, we also
+	// read the values from the other nodes and return the one with the highest
+	// value.
 	other, err := k.newestValueFromNodes(k.Node)
 	if err != nil {
 		return err
@@ -88,9 +98,13 @@ func (k *SeqNode) HandleCurrent(msg maelstrom.Message) error {
 	if other.Counter > value.Counter {
 		value = other
 	}
-	reply := map[string]interface{}{
-		"type":  "current_ok",
-		"value": value.Counter,
+	type replyMsg struct {
+		Type  string `json:"type"`
+		Value int    `json:"value"`
+	}
+	reply := replyMsg{
+		Type:  "current_ok",
+		Value: value.Counter,
 	}
 	return k.Reply(msg, reply)
 }
@@ -163,7 +177,7 @@ type counterValue struct {
 	Counter int `json:"counter"`
 }
 
-func (k *SeqNode) syncWrite(name string) error {
+func (k *SeqNode) syncWrite(name string) (int, error) {
 	for {
 		currentVal := counterValue{}
 		err := k.kv.ReadInto(context.Background(), name, &currentVal)
@@ -177,7 +191,7 @@ func (k *SeqNode) syncWrite(name string) error {
 			increment = 0
 		}
 		if err != nil {
-			return err
+			return 0, err
 		}
 		newVal := counterValue{
 			Counter: currentVal.Counter + increment,
@@ -187,14 +201,8 @@ func (k *SeqNode) syncWrite(name string) error {
 			continue
 		}
 		if err != nil {
-			return err
+			return 0, err
 		}
-		currentVal = counterValue{}
-		err = k.kv.ReadInto(context.Background(), name, &currentVal)
-		if err != nil {
-			return err
-		}
-
-		return nil
+		return currentVal.Counter, nil
 	}
 }
