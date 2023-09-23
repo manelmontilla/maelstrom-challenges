@@ -1,3 +1,6 @@
+// Package kafka implements the primitives needed to implement a Kafka style
+// log using either the kv stores provided by Maelstrom or in memory
+// structures.
 package kafka
 
 import (
@@ -10,19 +13,23 @@ import (
 
 var alreadyUsedErr = errors.New("already used")
 
-// Topics stores the values, the offsets and the committed offsets of topics.
+// Topics stores the values, the offsets and the committed offsets of topics
+// using kv stores provided by Maelstrom.
 type Topics struct {
-	offsets *Sequences
-	kv      *maelstrom.KV
+	offsets   *Sequences
+	values    *maelstrom.KV
+	committed *maelstrom.KV
 }
 
-// NewTopics returns an initialized [Topics].
+// NewTopics returns an initialized [Topics] struct.
 func NewTopics(node *maelstrom.Node) Topics {
-	kv := maelstrom.NewLinKV(node)
+	lkv := maelstrom.NewLinKV(node)
+	skv := maelstrom.NewSeqKV(node)
 	offsets := newSequences(node)
 	return Topics{
-		offsets: offsets,
-		kv:      kv,
+		offsets:   offsets,
+		values:    lkv,
+		committed: skv,
 	}
 }
 
@@ -67,7 +74,7 @@ func (t Topics) Read(topic string, offset, n int) ([]int, error) {
 func (t Topics) readOffset(topic string, offset int) (int, error) {
 	k := fmt.Sprintf("topic_v_%s_%d", topic, offset)
 	var v int
-	err := t.kv.ReadInto(context.Background(), k, &v)
+	err := t.values.ReadInto(context.Background(), k, &v)
 	var rpcErr *maelstrom.RPCError
 	if errors.As(err, &rpcErr) && rpcErr.Code == maelstrom.KeyDoesNotExist {
 		return -1, nil
@@ -83,7 +90,7 @@ func (t Topics) readOffset(topic string, offset int) (int, error) {
 func (t Topics) Committed(topic string) (int, error) {
 	k := fmt.Sprintf("topic_c_%s", topic)
 	committed := 0
-	err := t.kv.ReadInto(context.Background(), k, &committed)
+	err := t.committed.ReadInto(context.Background(), k, &committed)
 	var rpcErr *maelstrom.RPCError
 	if errors.As(err, &rpcErr) && rpcErr.Code == maelstrom.KeyDoesNotExist {
 		return -1, nil
@@ -101,7 +108,7 @@ func (t Topics) Commit(topic string, offset int) error {
 	// the one we want to commit or there is an error.
 	for {
 		lastCommitted := 0
-		err := t.kv.ReadInto(context.Background(), k, &lastCommitted)
+		err := t.committed.ReadInto(context.Background(), k, &lastCommitted)
 		var rpcErr *maelstrom.RPCError
 		if errors.As(err, &rpcErr) && rpcErr.Code == maelstrom.KeyDoesNotExist {
 			err = nil
@@ -114,7 +121,7 @@ func (t Topics) Commit(topic string, offset int) error {
 		if offset < lastCommitted {
 			return nil
 		}
-		err = t.kv.CompareAndSwap(context.Background(), k, lastCommitted, offset, true)
+		err = t.committed.CompareAndSwap(context.Background(), k, lastCommitted, offset, true)
 		if errors.As(err, &rpcErr) && rpcErr.Code == maelstrom.PreconditionFailed {
 			continue
 		}
@@ -124,9 +131,10 @@ func (t Topics) Commit(topic string, offset int) error {
 
 func (t Topics) store(topic string, offset int, value int) error {
 	k := fmt.Sprintf("topic_v_%s_%d", topic, offset)
-	// We use -1 as previous valid as we consider values stored in topics to be
-	// always not negative.
-	err := t.kv.CompareAndSwap(context.Background(), k, -1, value, true)
+	// We use -1 as previous value as we consider values stored in topics to be
+	// always not negative, so -1 will force the operation to only succeed if
+	// the key did not exist.
+	err := t.values.CompareAndSwap(context.Background(), k, -1, value, true)
 	var rpcErr *maelstrom.RPCError
 	if errors.As(err, &rpcErr) && rpcErr.Code == maelstrom.PreconditionFailed {
 		return alreadyUsedErr
