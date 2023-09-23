@@ -1,0 +1,17 @@
+linters:
+  enable:
+    - gci
+    - godot
+    - gofmt
+    - misspell
+    - revive
+    - whitespace
+linters-settings:
+  gci:
+    sections:
+      - standard
+      - default
+      - prefix(github.com/manelmontilla/maelstrom-challenges)
+    custom-order: true
+issues:
+  exclude-use-default: false

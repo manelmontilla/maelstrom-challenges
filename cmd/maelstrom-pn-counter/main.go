@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 
-	"github.com/manelmontilla/maelstrom-challenges/crdts"
+	"github.com/manelmontilla/maelstrom-challenges/internal/crdts"
 )
 
 func main() {

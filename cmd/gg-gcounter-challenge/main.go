@@ -28,7 +28,7 @@ type KVGCounterNode struct {
 	kv *maelstrom.KV
 }
 
-// NewKVGCounterNode creates a new node that implements a grow only counter
+// NewKVGCounterNode creates a new node that implements a grow only counter.
 func NewKVGCounterNode() *KVGCounterNode {
 	node := maelstrom.NewNode()
 	kv := maelstrom.NewSeqKV(node)
@@ -78,7 +78,7 @@ type counterValue struct {
 }
 
 func (k *KVGCounterNode) syncWrite(delta int) error {
-	// In an ever growing counter, if the delta and we try to apply it, it
+	// In an ever growing counter, if the delta is 0 and we apply it, it
 	// could go back.
 	if delta == 0 {
 		return nil
