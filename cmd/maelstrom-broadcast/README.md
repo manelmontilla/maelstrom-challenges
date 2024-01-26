@@ -17,8 +17,8 @@ Maximum latency is below 2 seconds
 and send them in batches
 
 2. Store together with each message (messages are identified using integers) a
-list indicating the nodes that we know already have the messages. Send the
-bit field in each broadcast messsage and update it with the one received
+list indicating the nodes that we know already have the messages. Send the list
+as a bit field in each broadcast messsage and update it with the one received
 
 ## Solution stats
 
